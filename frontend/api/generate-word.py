@@ -25,7 +25,12 @@ app = FastAPI()
 # Database & Auth Setup (Supabase Postgres)
 # =====================================
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("POSTGRES_URL")
+    or os.getenv("POSTGRES_PRISMA_URL")
+    or ""
+)
 JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
