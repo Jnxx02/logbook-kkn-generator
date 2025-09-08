@@ -265,7 +265,7 @@ async def generate_word_document_root():
 
 
 # Auth endpoints
-@app.post("api/generate-word/auth/register", response_model=UserOut)
+@app.post("/auth/register", response_model=UserOut)
 async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.nim == user_in.nim).first()
     if existing:
@@ -277,7 +277,7 @@ async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
     return user
 
 
-@app.post("api/generate-word/auth/login", response_model=Token)
+@app.post("/auth/login", response_model=Token)
 async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.nim == form.username).first()
     if not user or not verify_password(form.password, user.password_hash):
