@@ -43,6 +43,13 @@ def get_db():
     finally:
         db.close()
 
+# Ensure minimal metadata is loaded (no-op if exists)
+try:
+    # Not creating tables here to avoid race with register; but safe to ensure engine is valid
+    engine.connect().close()
+except Exception:
+    pass
+
 
 class User(Base):
     __tablename__ = "users"

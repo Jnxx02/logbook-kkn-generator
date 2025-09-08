@@ -41,6 +41,12 @@ def get_db():
     finally:
         db.close()
 
+# Ensure tables exist (first-run)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception:
+    pass
+
 
 class User(Base):
     __tablename__ = "users"
