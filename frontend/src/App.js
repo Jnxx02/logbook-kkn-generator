@@ -162,7 +162,8 @@ function App() {
 
     setIsGenerating(true);
     try {
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/generate-word`, {
+      const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
+      const response = await fetch(`${baseUrl}/api/generate-word`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
