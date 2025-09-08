@@ -5,6 +5,7 @@ function App() {
   const [entries, setEntries] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [formData, setFormData] = useState({
     tanggal: '',
     jam_mulai: '',
@@ -19,18 +20,21 @@ function App() {
   useEffect(() => {
     const savedEntries = localStorage.getItem('logbook_entries');
     if (savedEntries) {
-      setEntries(JSON.parse(savedEntries));
+      try {
+        setEntries(JSON.parse(savedEntries));
+      } catch (error) {
+        console.error('Error parsing localStorage data:', error);
+      }
     }
+    setIsInitialized(true);
   }, []);
 
   // Save to localStorage whenever entries change (but not on initial load)
   useEffect(() => {
-    // Only save if entries is not empty or if we've loaded data
-    const savedEntries = localStorage.getItem('logbook_entries');
-    if (entries.length > 0 || savedEntries) {
+    if (isInitialized) {
       localStorage.setItem('logbook_entries', JSON.stringify(entries));
     }
-  }, [entries]);
+  }, [entries, isInitialized]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
