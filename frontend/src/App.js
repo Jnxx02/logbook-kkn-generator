@@ -69,10 +69,11 @@ function App() {
 
   const isLoggedIn = !!token;
   const baseUrl = process.env.REACT_APP_BACKEND_URL || '/api/generate-word';
+  const authBase = process.env.REACT_APP_AUTH_URL || '';
 
   const handleRegister = async () => {
     try {
-      const res = await fetch(`${baseUrl}/auth/register`, {
+      const res = await fetch(`${authBase}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nim: authNim, password: authPassword }),
@@ -93,7 +94,7 @@ function App() {
       const form = new URLSearchParams();
       form.set('username', authNim);
       form.set('password', authPassword);
-      const res = await fetch(`${baseUrl}/auth/login`, {
+      const res = await fetch(`${authBase}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: form.toString(),
