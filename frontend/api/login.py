@@ -71,7 +71,7 @@ def create_access_token(user_id: int) -> str:
 
 
 @app.post("", response_model=Token)
-@app.post("/", response_model=Token)
+@app.post("/api/login", response_model=Token)
 async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.nim == form.username).first()
     if not user or not verify_password(form.password, user.password_hash):
@@ -80,8 +80,8 @@ async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depen
     return {"access_token": token, "token_type": "bearer"}
 
 
-@app.get("")
 @app.get("/")
+@app.get("/api/login")
 async def ping():
     return {"ok": True}
 

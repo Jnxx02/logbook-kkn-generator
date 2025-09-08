@@ -71,7 +71,7 @@ def hash_password(plain: str) -> str:
 
 
 @app.post("", response_model=UserOut)
-@app.post("/", response_model=UserOut)
+@app.post("/api/register", response_model=UserOut)
 async def register(user_in: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.nim == user_in.nim).first()
     if existing:
@@ -83,8 +83,8 @@ async def register(user_in: UserCreate, db: Session = Depends(get_db)):
     return user
 
 
-@app.get("")
 @app.get("/")
+@app.get("/api/register")
 async def ping():
     return {"ok": True}
 
