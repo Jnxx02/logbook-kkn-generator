@@ -108,9 +108,12 @@ function App() {
   };
 
   const handleEdit = (entry) => {
+    // Split jam back to jam_mulai and jam_selesai
+    const jamParts = entry.jam.split(' - ');
     setFormData({
       tanggal: entry.tanggal,
-      jam: entry.jam,
+      jam_mulai: jamParts[0] || '',
+      jam_selesai: jamParts[1] || '',
       judul_kegiatan: entry.judul_kegiatan,
       rincian_kegiatan: entry.rincian_kegiatan,
       dokumen_pendukung: entry.dokumen_pendukung
