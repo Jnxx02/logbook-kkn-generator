@@ -23,9 +23,13 @@ function App() {
     }
   }, []);
 
-  // Save to localStorage whenever entries change
+  // Save to localStorage whenever entries change (but not on initial load)
   useEffect(() => {
-    localStorage.setItem('logbook_entries', JSON.stringify(entries));
+    // Only save if entries is not empty or if we've loaded data
+    const savedEntries = localStorage.getItem('logbook_entries');
+    if (entries.length > 0 || savedEntries) {
+      localStorage.setItem('logbook_entries', JSON.stringify(entries));
+    }
   }, [entries]);
 
   const handleInputChange = (e) => {
