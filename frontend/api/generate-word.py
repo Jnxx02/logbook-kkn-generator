@@ -26,8 +26,13 @@ class LogbookEntry(BaseModel):
 class LogbookData(BaseModel):
     entries: List[LogbookEntry]
 
+@app.get("/")
+@app.get("/api/generate-word")
+async def generate_word_document():
+    return {"status": "generate-word"}
 
-@app.post("/")
+
+@app.post("/api/generate-word")
 async def generate_word_document(data: LogbookData):
     try:
         doc = Document()
