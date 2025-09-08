@@ -36,7 +36,9 @@ class LogbookData(BaseModel):
     entries: List[LogbookEntry]
 
 
+# Support both paths: when mounted at /api/index on Vercel, and direct /api
 @app.post("/api/generate-word")
+@app.post("/generate-word")
 async def generate_word_document(data: LogbookData):
     try:
         doc = Document()
@@ -145,6 +147,7 @@ async def generate_word_document(data: LogbookData):
 
 
 @app.get("/api/health")
+@app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
