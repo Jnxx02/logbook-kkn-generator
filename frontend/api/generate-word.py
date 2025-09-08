@@ -31,7 +31,15 @@ DATABASE_URL = (
     or os.getenv("POSTGRES_PRISMA_URL")
     or ""
 )
-JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret")
+
+# Normalize URL scheme for SQLAlchemy
+if DATABASE_URL:
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
+    elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL.split("://", 1)[0]:
+        # upgrade to psycopg driver explicitly
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
+JWT_SECRET = os.getenv("JWT_SECRET", "9f56a2a9f2d44a2eb8c6b3f4c8d3b1ae")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
