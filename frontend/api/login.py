@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, sessionmaker, declarative_base
 from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from pydantic import BaseModel
-from datetime import datetime
 from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import jwt
 import os
 
 app = FastAPI()
@@ -48,42 +50,39 @@ class User(Base):
     nim = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
-    created_at = Column(String, default=lambda: datetime.utcnow().isoformat(), nullable=False)
 
 
-class UserCreate(BaseModel):
-    nim: str
-    password: str
-    is_admin: bool | None = False
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 
-class UserOut(BaseModel):
-    id: int
-    nim: str
-    is_admin: bool
-
-    class Config:
-        from_attributes = True
+ALGORITHM = "HS256"
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me")
 
 
-def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
 
-@app.post("", response_model=UserOut)
-@app.post("/", response_model=UserOut)
-async def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.nim == user_in.nim).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="NIM already registered")
-    user = User(nim=user_in.nim, password_hash=hash_password(user_in.password), is_admin=bool(user_in.is_admin or False))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+def create_access_token(user_id: int) -> str:
+    payload = {"sub": str(user_id), "exp": datetime.utcnow() + timedelta(minutes=60)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
+
+
+@app.post("", response_model=Token)
+@app.post("/", response_model=Token)
+async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.nim == form.username).first()
+    if not user or not verify_password(form.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect NIM or password")
+    token = create_access_token(user.id)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @app.get("")
 @app.get("/")
 async def ping():
     return {"ok": True}
+
+
