@@ -4,7 +4,7 @@ import './App.css';
 function App() {
   const [entries, setEntries] = useState([]);
   const [token, setToken] = useState(localStorage.getItem('auth_token') || '');
-  const [authEmail, setAuthEmail] = useState(localStorage.getItem('auth_email') || '');
+  const [authNim, setAuthNim] = useState(localStorage.getItem('auth_nim') || '');
   const [authPassword, setAuthPassword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -75,7 +75,7 @@ function App() {
       const res = await fetch(`${baseUrl}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword }),
+        body: JSON.stringify({ nim: authNim, password: authPassword }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -91,7 +91,7 @@ function App() {
   const handleLogin = async () => {
     try {
       const form = new URLSearchParams();
-      form.set('username', authEmail);
+      form.set('username', authNim);
       form.set('password', authPassword);
       const res = await fetch(`${baseUrl}/auth/login`, {
         method: 'POST',
@@ -106,7 +106,7 @@ function App() {
       const tk = j.access_token;
       setToken(tk);
       localStorage.setItem('auth_token', tk);
-      localStorage.setItem('auth_email', authEmail);
+      localStorage.setItem('auth_nim', authNim);
       // load entries from server
       const listRes = await fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${tk}` } });
       const data = await listRes.json();
@@ -128,6 +128,7 @@ function App() {
   const handleLogout = () => {
     setToken('');
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_nim');
     // keep entries as-is or reload from localStorage
   };
 
@@ -421,17 +422,17 @@ function App() {
           </div>
 
           <div className="p-6">
-            {/* Auth Section */}
+            {/* Auth Section: Login-first with NIM */}
             <div className="mb-6 flex items-end justify-between gap-4">
               <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">NIM</label>
                   <input
-                    type="email"
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
+                    type="text"
+                    value={authNim}
+                    onChange={(e) => setAuthNim(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="you@example.com"
+                    placeholder="Masukkan NIM"
                   />
                 </div>
                 <div>
@@ -452,35 +453,44 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <span className="text-sm text-gray-700 self-center truncate">Login sebagai: {authEmail || localStorage.getItem('auth_email')}</span>
+                      <span className="text-sm text-gray-700 self-center truncate">Login sebagai: {authNim || localStorage.getItem('auth_nim')}</span>
                       <button onClick={handleLogout} className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">Logout</button>
                     </>
                   )}
                 </div>
               </div>
             </div>
-            {/* Tabs */}
-            <div className="mb-6">
-              <div className="inline-flex rounded-md shadow-sm" role="group">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('form')}
-                  className={`px-4 py-2 text-sm font-medium border ${activeTab === 'form' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                >
-                  Tambah Kegiatan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('preview')}
-                  className={`px-4 py-2 text-sm font-medium border-t border-b border-r ${activeTab === 'preview' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                >
-                  Preview Logbook
-                </button>
+            {/* Tampilkan konten hanya setelah login */}
+            {!isLoggedIn ? (
+              <div className="mb-6 p-4 border border-blue-200 bg-blue-50 rounded">
+                <p className="text-blue-800 text-sm">Silakan login terlebih dahulu dengan NIM dan password untuk mulai mengisi logbook.</p>
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Tabs */}
+                <div className="mb-6">
+                  <div className="inline-flex rounded-md shadow-sm" role="group">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('form')}
+                      className={`px-4 py-2 text-sm font-medium border ${activeTab === 'form' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      Tambah Kegiatan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('preview')}
+                      className={`px-4 py-2 text-sm font-medium border-t border-b border-r ${activeTab === 'preview' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    >
+                      Preview Logbook
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Form Input */}
-            {activeTab === 'form' && (
+            {isLoggedIn && activeTab === 'form' && (
             <div className="bg-gray-50 rounded-lg p-6 mb-8">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">
                 {isEditing ? 'Edit Kegiatan' : 'Tambah Kegiatan Baru'}
@@ -608,7 +618,7 @@ function App() {
             )}
 
             {/* Preview Logbook */}
-            {activeTab === 'preview' && (
+            {isLoggedIn && activeTab === 'preview' && (
               <div className="mb-8">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold text-gray-900">Preview Logbook</h2>

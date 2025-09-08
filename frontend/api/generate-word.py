@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, date, time, timedelta
 from docx import Document
@@ -63,7 +63,7 @@ def get_db():
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
+    nim = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(String, default=lambda: datetime.utcnow().isoformat(), nullable=False)
@@ -94,14 +94,14 @@ class Token(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    nim: str
     password: str
     is_admin: Optional[bool] = False
 
 
 class UserOut(BaseModel):
     id: int
-    email: EmailStr
+    nim: str
     is_admin: bool
 
     class Config:
@@ -242,10 +242,10 @@ async def generate_word_document_root():
 # Auth endpoints
 @app.post("/auth/register", response_model=UserOut)
 async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == user_in.email).first()
+    existing = db.query(User).filter(User.nim == user_in.nim).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(email=user_in.email, password_hash=hash_password(user_in.password), is_admin=bool(user_in.is_admin or False))
+        raise HTTPException(status_code=400, detail="NIM already registered")
+    user = User(nim=user_in.nim, password_hash=hash_password(user_in.password), is_admin=bool(user_in.is_admin or False))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -254,9 +254,9 @@ async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/auth/login", response_model=Token)
 async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form.username).first()
+    user = db.query(User).filter(User.nim == form.username).first()
     if not user or not verify_password(form.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
+        raise HTTPException(status_code=400, detail="Incorrect NIM or password")
     token = create_access_token(user.id)
     return {"access_token": token, "token_type": "bearer"}
 
