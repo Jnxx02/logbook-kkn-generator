@@ -1,34 +1,149 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for the logbook app */
+.table-container {
+  @apply overflow-x-auto;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.logbook-table {
+  @apply min-w-full border-collapse;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.logbook-table th,
+.logbook-table td {
+  @apply border border-gray-400 px-4 py-3;
 }
 
-.App-link {
-    color: #61dafb;
+.logbook-table th {
+  @apply bg-gray-100 font-bold text-gray-900 text-center;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.logbook-table td {
+  @apply text-gray-700;
+}
+
+.logbook-table tr:hover {
+  @apply bg-gray-50;
+}
+
+/* Form styling */
+.form-input {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500;
+}
+
+.form-label {
+  @apply block text-sm font-medium text-gray-700 mb-2;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-gray-500 text-white px-6 py-2 rounded-md hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors;
+}
+
+.btn-success {
+  @apply bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors;
+}
+
+.btn-warning {
+  @apply bg-yellow-500 text-white px-3 py-1 rounded text-sm hover:bg-yellow-600 transition-colors;
+}
+
+.btn-danger {
+  @apply bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 transition-colors;
+}
+
+/* Image preview styling */
+.image-preview {
+  @apply max-w-xs h-32 object-cover rounded-md border;
+}
+
+/* Card styling */
+.card {
+  @apply bg-white shadow-lg rounded-lg overflow-hidden;
+}
+
+.card-header {
+  @apply bg-blue-600 px-6 py-4;
+}
+
+.card-title {
+  @apply text-2xl font-bold text-white;
+}
+
+.card-subtitle {
+  @apply text-blue-100 mt-1;
+}
+
+.card-body {
+  @apply p-6;
+}
+
+/* Form section */
+.form-section {
+  @apply bg-gray-50 rounded-lg p-6 mb-8;
+}
+
+.form-section-title {
+  @apply text-xl font-semibold text-gray-900 mb-4;
+}
+
+/* Empty state */
+.empty-state {
+  @apply text-center py-8;
+}
+
+.empty-state-title {
+  @apply text-gray-500 text-lg;
+}
+
+.empty-state-subtitle {
+  @apply text-gray-400 mt-2;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .logbook-table {
+    font-size: 0.875rem;
+  }
+  
+  .logbook-table th,
+  .logbook-table td {
+    padding: 0.5rem;
+  }
+}
+
+/* Loading state */
+.loading {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Preview section styling */
+.preview-section {
+  @apply mb-8;
+}
+
+.preview-header {
+  @apply flex justify-between items-center mb-4;
+}
+
+.preview-title {
+  @apply text-xl font-semibold text-gray-900;
+}
+
+/* Activity details styling */
+.activity-details {
+  @apply space-y-3;
+}
+
+.activity-label {
+  @apply font-bold text-gray-900;
+}
+
+.activity-content {
+  @apply ml-4;
 }
