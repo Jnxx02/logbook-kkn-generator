@@ -68,7 +68,7 @@ function App() {
   }, [entries, isInitialized, token]);
 
   const isLoggedIn = !!token;
-  const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
+  const baseUrl = process.env.REACT_APP_BACKEND_URL || '/api/generate-word';
 
   const handleRegister = async () => {
     try {
