@@ -3,6 +3,9 @@ import './App.css';
 
 function App() {
   const [entries, setEntries] = useState([]);
+  const [token, setToken] = useState(localStorage.getItem('auth_token') || '');
+  const [authEmail, setAuthEmail] = useState(localStorage.getItem('auth_email') || '');
+  const [authPassword, setAuthPassword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -18,25 +21,115 @@ function App() {
   });
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Load data from localStorage on component mount
+  // Load data on component mount
   useEffect(() => {
     const savedEntries = localStorage.getItem('logbook_entries');
-    if (savedEntries) {
-      try {
-        setEntries(JSON.parse(savedEntries));
-      } catch (error) {
-        console.error('Error parsing localStorage data:', error);
+    const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
+    const load = async () => {
+      if (token) {
+        try {
+          const res = await fetch(`${baseUrl}/logbook`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error('Gagal memuat data dari server');
+          const data = await res.json();
+          // map API shape to UI entries shape
+          const mapped = data.map((e) => ({
+            id: String(e.id),
+            tanggal: e.tanggal, // ISO date
+            jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
+            judul_kegiatan: e.judul_kegiatan,
+            rincian_kegiatan: e.rincian_kegiatan,
+            dokumen_pendukung: e.dokumen_pendukung || null,
+          }));
+          setEntries(mapped);
+        } catch (e) {
+          console.error(e);
+          // fallback to localStorage if available
+          if (savedEntries) {
+            try { setEntries(JSON.parse(savedEntries)); } catch {}
+          }
+        }
+      } else {
+        if (savedEntries) {
+          try { setEntries(JSON.parse(savedEntries)); } catch (error) { console.error('Error parsing localStorage data:', error); }
+        }
       }
-    }
-    setIsInitialized(true);
+      setIsInitialized(true);
+    };
+    load();
   }, []);
 
-  // Save to localStorage whenever entries change (but not on initial load)
+  // Save to localStorage whenever entries change (but not on initial load) and only when not logged in
   useEffect(() => {
-    if (isInitialized) {
+    if (isInitialized && !token) {
       localStorage.setItem('logbook_entries', JSON.stringify(entries));
     }
-  }, [entries, isInitialized]);
+  }, [entries, isInitialized, token]);
+
+  const isLoggedIn = !!token;
+  const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
+
+  const handleRegister = async () => {
+    try {
+      const res = await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.detail || 'Registrasi gagal');
+      }
+      // auto login after register
+      await handleLogin();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const handleLogin = async () => {
+    try {
+      const form = new URLSearchParams();
+      form.set('username', authEmail);
+      form.set('password', authPassword);
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || 'Login gagal');
+      }
+      const j = await res.json();
+      const tk = j.access_token;
+      setToken(tk);
+      localStorage.setItem('auth_token', tk);
+      localStorage.setItem('auth_email', authEmail);
+      // load entries from server
+      const listRes = await fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${tk}` } });
+      const data = await listRes.json();
+      const mapped = (data || []).map((e) => ({
+        id: String(e.id),
+        tanggal: e.tanggal,
+        jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
+        judul_kegiatan: e.judul_kegiatan,
+        rincian_kegiatan: e.rincian_kegiatan,
+        dokumen_pendukung: e.dokumen_pendukung || null,
+      }));
+      setEntries(mapped);
+      setAuthPassword('');
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const handleLogout = () => {
+    setToken('');
+    localStorage.removeItem('auth_token');
+    // keep entries as-is or reload from localStorage
+  };
 
   const sortedEntries = useMemo(() => {
     const parseDate = (d) => {
@@ -105,23 +198,73 @@ function App() {
     // Combine jam_mulai and jam_selesai into jam format
     const jamCombined = `${formData.jam_mulai} - ${formData.jam_selesai}`;
 
-    if (isEditing) {
-      // Update existing entry
-      setEntries(prev => prev.map(entry => 
-        entry.id === editingId 
-          ? { ...formData, jam: jamCombined, id: editingId }
-          : entry
-      ));
-      setIsEditing(false);
-      setEditingId(null);
+    const saveLocal = () => {
+      if (isEditing) {
+        setEntries(prev => prev.map(entry => 
+          entry.id === editingId 
+            ? { ...formData, jam: jamCombined, id: editingId }
+            : entry
+        ));
+        setIsEditing(false);
+        setEditingId(null);
+      } else {
+        const newEntry = {
+          ...formData,
+          jam: jamCombined,
+          id: Date.now().toString()
+        };
+        setEntries(prev => [...prev, newEntry]);
+      }
+    };
+
+    const saveRemote = async () => {
+      try {
+        const payload = {
+          tanggal: formData.tanggal,
+          jam_mulai: formData.jam_mulai,
+          jam_selesai: formData.jam_selesai || null,
+          judul_kegiatan: formData.judul_kegiatan,
+          rincian_kegiatan: formData.rincian_kegiatan,
+          dokumen_pendukung: formData.dokumen_pendukung,
+        };
+        if (isEditing) {
+          const res = await fetch(`${baseUrl}/logbook/${editingId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error('Gagal update ke server');
+        } else {
+          const res = await fetch(`${baseUrl}/logbook`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error('Gagal simpan ke server');
+        }
+        // refresh list
+        const listRes = await fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await listRes.json();
+        const mapped = (data || []).map((e) => ({
+          id: String(e.id),
+          tanggal: e.tanggal,
+          jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
+          judul_kegiatan: e.judul_kegiatan,
+          rincian_kegiatan: e.rincian_kegiatan,
+          dokumen_pendukung: e.dokumen_pendukung || null,
+        }));
+        setEntries(mapped);
+        setIsEditing(false);
+        setEditingId(null);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    if (isLoggedIn) {
+      saveRemote();
     } else {
-      // Add new entry
-      const newEntry = {
-        ...formData,
-        jam: jamCombined,
-        id: Date.now().toString()
-      };
-      setEntries(prev => [...prev, newEntry]);
+      saveLocal();
     }
 
     // Reset form
@@ -157,7 +300,31 @@ function App() {
 
   const handleDelete = (id) => {
     if (window.confirm('Yakin ingin menghapus kegiatan ini?')) {
-      setEntries(prev => prev.filter(entry => entry.id !== id));
+      if (isLoggedIn) {
+        fetch(`${baseUrl}/logbook/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error('Gagal menghapus di server');
+            return fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${token}` } });
+          })
+          .then((res) => res.json())
+          .then((data) => {
+            const mapped = (data || []).map((e) => ({
+              id: String(e.id),
+              tanggal: e.tanggal,
+              jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
+              judul_kegiatan: e.judul_kegiatan,
+              rincian_kegiatan: e.rincian_kegiatan,
+              dokumen_pendukung: e.dokumen_pendukung || null,
+            }));
+            setEntries(mapped);
+          })
+          .catch((e) => alert(e.message));
+      } else {
+        setEntries(prev => prev.filter(entry => entry.id !== id));
+      }
     }
   };
 
@@ -187,10 +354,8 @@ function App() {
       const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
       const response = await fetch(`${baseUrl}/api/generate-word`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ entries }),
+        headers: isLoggedIn ? { Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' },
+        body: isLoggedIn ? null : JSON.stringify({ entries }),
       });
 
       if (!response.ok) {
@@ -256,6 +421,44 @@ function App() {
           </div>
 
           <div className="p-6">
+            {/* Auth Section */}
+            <div className="mb-6 flex items-end justify-between gap-4">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                  <input
+                    type="password"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="••••••••"
+                  />
+                </div>
+                <div className="flex gap-2 md:mt-6">
+                  {!isLoggedIn ? (
+                    <>
+                      <button onClick={handleLogin} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Login</button>
+                      <button onClick={handleRegister} className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700">Register</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-sm text-gray-700 self-center truncate">Login sebagai: {authEmail || localStorage.getItem('auth_email')}</span>
+                      <button onClick={handleLogout} className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">Logout</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
             {/* Tabs */}
             <div className="mb-6">
               <div className="inline-flex rounded-md shadow-sm" role="group">
