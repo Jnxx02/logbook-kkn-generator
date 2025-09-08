@@ -266,6 +266,7 @@ async def generate_word_document_root():
 
 # Auth endpoints
 @app.post("/auth/register", response_model=UserOut)
+@app.post("/api/generate-word/auth/register", response_model=UserOut)
 async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.nim == user_in.nim).first()
     if existing:
@@ -278,6 +279,7 @@ async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
 
 
 @app.post("/auth/login", response_model=Token)
+@app.post("/api/generate-word/auth/login", response_model=Token)
 async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.nim == form.username).first()
     if not user or not verify_password(form.password, user.password_hash):
@@ -288,6 +290,7 @@ async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depen
 
 # CRUD endpoints
 @app.get("/logbook", response_model=List[LogbookEntryOut])
+@app.get("/api/generate-word/logbook", response_model=List[LogbookEntryOut])
 async def list_logbook(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     entries = (
         db.query(LogbookEntryORM)
@@ -310,6 +313,7 @@ async def list_logbook(current_user: User = Depends(get_current_user), db: Sessi
 
 
 @app.post("/logbook", response_model=LogbookEntryOut)
+@app.post("/api/generate-word/logbook", response_model=LogbookEntryOut)
 async def create_logbook(entry: LogbookEntryIn, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     def parse_time(v: Optional[str]) -> Optional[time]:
         if not v:
@@ -345,6 +349,7 @@ async def create_logbook(entry: LogbookEntryIn, current_user: User = Depends(get
 
 
 @app.put("/logbook/{entry_id}", response_model=LogbookEntryOut)
+@app.put("/api/generate-word/logbook/{entry_id}", response_model=LogbookEntryOut)
 async def update_logbook(entry_id: int, entry: LogbookEntryIn, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     orm = db.query(LogbookEntryORM).filter(LogbookEntryORM.id == entry_id, LogbookEntryORM.user_id == current_user.id).first()
     if not orm:
@@ -382,6 +387,7 @@ async def update_logbook(entry_id: int, entry: LogbookEntryIn, current_user: Use
 
 
 @app.delete("/logbook/{entry_id}")
+@app.delete("/api/generate-word/logbook/{entry_id}")
 async def delete_logbook(entry_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     orm = db.query(LogbookEntryORM).filter(LogbookEntryORM.id == entry_id, LogbookEntryORM.user_id == current_user.id).first()
     if not orm:
