@@ -236,12 +236,7 @@ metadata:
   run_ui: true
 
 test_plan:
-  current_focus:
-    - "Generate Word Document API"
-    - "LocalStorage Data Management"
-    - "Generate Word Button"
-    - "Image Upload and Preview"
-    - "Edit/Delete Functionality"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
