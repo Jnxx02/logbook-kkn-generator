@@ -65,16 +65,19 @@ function App() {
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    if (!formData.tanggal || !formData.jam || !formData.judul_kegiatan || !formData.rincian_kegiatan) {
+    if (!formData.tanggal || !formData.jam_mulai || !formData.jam_selesai || !formData.judul_kegiatan || !formData.rincian_kegiatan) {
       alert('Mohon lengkapi semua field yang wajib diisi.');
       return;
     }
+
+    // Combine jam_mulai and jam_selesai into jam format
+    const jamCombined = `${formData.jam_mulai} - ${formData.jam_selesai}`;
 
     if (isEditing) {
       // Update existing entry
       setEntries(prev => prev.map(entry => 
         entry.id === editingId 
-          ? { ...formData, id: editingId }
+          ? { ...formData, jam: jamCombined, id: editingId }
           : entry
       ));
       setIsEditing(false);
@@ -83,6 +86,7 @@ function App() {
       // Add new entry
       const newEntry = {
         ...formData,
+        jam: jamCombined,
         id: Date.now().toString()
       };
       setEntries(prev => [...prev, newEntry]);
@@ -91,7 +95,8 @@ function App() {
     // Reset form
     setFormData({
       tanggal: '',
-      jam: '',
+      jam_mulai: '',
+      jam_selesai: '',
       judul_kegiatan: '',
       rincian_kegiatan: '',
       dokumen_pendukung: null
