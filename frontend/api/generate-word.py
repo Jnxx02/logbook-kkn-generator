@@ -105,7 +105,11 @@ class LogbookEntryORM(Base):
 
 
 if engine is not None:
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        # Avoid crashing the function on cold start; DB will be used lazily per-request
+        pass
 
 
 # Schemas
