@@ -13,8 +13,13 @@ from ..api.generate-word import (
 app = FastAPI()
 
 
+@app.post("", response_model=Token)
 @app.post("/", response_model=Token)
 async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@app.get("")
+@app.get("/")
+async def ping():
+    return {"ok": True}
     user = db.query(User).filter(User.nim == form.username).first()
     if not user or not verify_password(form.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Incorrect NIM or password")

@@ -12,8 +12,13 @@ from ..api.generate-word import (
 app = FastAPI()
 
 
+@app.post("", response_model=UserOut)
 @app.post("/", response_model=UserOut)
 async def register(user_in: UserCreate, db: Session = Depends(get_db)):
+@app.get("")
+@app.get("/")
+async def ping():
+    return {"ok": True}
     existing = db.query(User).filter(User.nim == user_in.nim).first()
     if existing:
         raise HTTPException(status_code=400, detail="NIM already registered")
