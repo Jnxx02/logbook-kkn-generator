@@ -133,7 +133,8 @@ function App() {
     setEditingId(null);
     setFormData({
       tanggal: '',
-      jam: '',
+      jam_mulai: '',
+      jam_selesai: '',
       judul_kegiatan: '',
       rincian_kegiatan: '',
       dokumen_pendukung: null
