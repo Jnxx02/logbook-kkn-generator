@@ -7,7 +7,8 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
     tanggal: '',
-    jam: '',
+    jam_mulai: '',
+    jam_selesai: '',
     judul_kegiatan: '',
     rincian_kegiatan: '',
     dokumen_pendukung: null
