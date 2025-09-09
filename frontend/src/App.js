@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+import { idbSaveImage, idbGetImage, idbDeleteImage } from './lib/idb';
 
 function App() {
   const [entries, setEntries] = useState([]);
-  const [token, setToken] = useState(localStorage.getItem('auth_token') || '');
-  const [authNim, setAuthNim] = useState(localStorage.getItem('auth_nim') || '');
-  const [authPassword, setAuthPassword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -17,121 +15,99 @@ function App() {
     jam_selesai: '',
     judul_kegiatan: '',
     rincian_kegiatan: '',
-    dokumen_pendukung: null
+    dokumen_pendukung: null,
+    dokumen_pendukung_key: null
   });
   const [isGenerating, setIsGenerating] = useState(false);
 
-  // Load data on component mount
-  useEffect(() => {
-    const savedEntries = localStorage.getItem('logbook_entries');
-    const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
-    const load = async () => {
-      if (token) {
+  // Compress image using canvas (max width/height and JPEG quality)
+  const compressImage = async (dataUrl, options = { maxWidth: 1280, maxHeight: 1280, quality: 0.7 }) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const { maxWidth, maxHeight, quality } = options;
+
+        const ratio = Math.min(1, maxWidth / width, maxHeight / height);
+        const targetWidth = Math.round(width * ratio);
+        const targetHeight = Math.round(height * ratio);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
         try {
-          const res = await fetch(`${baseUrl}/logbook`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (!res.ok) throw new Error('Gagal memuat data dari server');
-          const data = await res.json();
-          // map API shape to UI entries shape
-          const mapped = data.map((e) => ({
-            id: String(e.id),
-            tanggal: e.tanggal, // ISO date
-            jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
+          const out = canvas.toDataURL('image/jpeg', quality);
+          resolve(out);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = () => reject(new Error('Gagal memuat gambar untuk kompresi'));
+      img.src = dataUrl;
+    });
+  };
+
+  // Helper: safely save entries to localStorage without exceeding quota
+  const safeSaveEntries = (allEntries) => {
+    const entriesWithoutImages = allEntries.map((e) => ({
+      id: e.id,
+      tanggal: e.tanggal,
+      jam: e.jam,
             judul_kegiatan: e.judul_kegiatan,
             rincian_kegiatan: e.rincian_kegiatan,
-            dokumen_pendukung: e.dokumen_pendukung || null,
-          }));
-          setEntries(mapped);
-        } catch (e) {
-          console.error(e);
-          // fallback to localStorage if available
-          if (savedEntries) {
-            try { setEntries(JSON.parse(savedEntries)); } catch {}
-          }
-        }
-      } else {
-        if (savedEntries) {
-          try { setEntries(JSON.parse(savedEntries)); } catch (error) { console.error('Error parsing localStorage data:', error); }
+      dokumen_pendukung: e.dokumen_pendukung_key || null,
+    }));
+    try {
+      localStorage.setItem('logbook_entries', JSON.stringify(entriesWithoutImages));
+    } catch (err) {
+      let sliceSize = Math.max(0, Math.floor(entriesWithoutImages.length * 0.8));
+      while (sliceSize > 0) {
+        try {
+          localStorage.setItem('logbook_entries', JSON.stringify(entriesWithoutImages.slice(-sliceSize)));
+          alert('Penyimpanan hampir penuh. Sebagian entri lama tidak disimpan ke localStorage.');
+          return;
+        } catch (_) {
+          sliceSize = Math.floor(sliceSize * 0.8);
         }
       }
-      setIsInitialized(true);
-    };
-    load();
+      console.error('Gagal menyimpan ke localStorage:', err);
+    }
+  };
+
+  // Load data on component mount
+  useEffect(() => {
+    const saved = localStorage.getItem('logbook_entries');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        Promise.all(
+          (parsed || []).map(async (e) => {
+            const key = e.dokumen_pendukung;
+            if (key) {
+              const dataUrl = await idbGetImage(key);
+              return { ...e, dokumen_pendukung_key: key, dokumen_pendukung: dataUrl };
+            }
+            return { ...e, dokumen_pendukung_key: null, dokumen_pendukung: null };
+          })
+        ).then(setEntries).catch(() => setEntries(parsed));
+      } catch (error) {
+        console.error('Error parsing localStorage data:', error);
+      }
+    }
+    setIsInitialized(true);
   }, []);
 
-  // Save to localStorage whenever entries change (but not on initial load) and only when not logged in
+  // Save to localStorage whenever entries change (but not on initial load)
   useEffect(() => {
-    if (isInitialized && !token) {
-      localStorage.setItem('logbook_entries', JSON.stringify(entries));
+    if (isInitialized) {
+      safeSaveEntries(entries);
     }
-  }, [entries, isInitialized, token]);
-
-  const isLoggedIn = !!token;
-  const baseUrl = process.env.REACT_APP_BACKEND_URL || '/api/generate-word';
-  const authBase = process.env.REACT_APP_AUTH_URL || '';
-
-  const handleRegister = async () => {
-    try {
-      const res = await fetch(`${authBase}/api/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nim: authNim, password: authPassword }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.detail || 'Registrasi gagal');
-      }
-      // auto login after register
-      await handleLogin();
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  const handleLogin = async () => {
-    try {
-      const form = new URLSearchParams();
-      form.set('username', authNim);
-      form.set('password', authPassword);
-      const res = await fetch(`${authBase}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form.toString(),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || 'Login gagal');
-      }
-      const j = await res.json();
-      const tk = j.access_token;
-      setToken(tk);
-      localStorage.setItem('auth_token', tk);
-      localStorage.setItem('auth_nim', authNim);
-      // load entries from server
-      const listRes = await fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${tk}` } });
-      const data = await listRes.json();
-      const mapped = (data || []).map((e) => ({
-        id: String(e.id),
-        tanggal: e.tanggal,
-        jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
-        judul_kegiatan: e.judul_kegiatan,
-        rincian_kegiatan: e.rincian_kegiatan,
-        dokumen_pendukung: e.dokumen_pendukung || null,
-      }));
-      setEntries(mapped);
-      setAuthPassword('');
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  const handleLogout = () => {
-    setToken('');
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_nim');
-    // keep entries as-is or reload from localStorage
-  };
+  }, [entries, isInitialized]);
+  
+  // Auth removed: app works entirely offline using localStorage
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -157,11 +133,24 @@ function App() {
       }
 
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setFormData(prev => ({
-          ...prev,
-          dokumen_pendukung: e.target.result
-        }));
+      reader.onload = async (e) => {
+        let dataUrl = e.target.result;
+        try {
+          dataUrl = await compressImage(dataUrl, { maxWidth: 1280, maxHeight: 1280, quality: 0.7 });
+        } catch (err) {
+          console.warn('Kompresi gambar gagal, menggunakan gambar asli.');
+        }
+        const key = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        try {
+          await idbSaveImage(key, dataUrl);
+          setFormData(prev => ({
+            ...prev,
+            dokumen_pendukung: dataUrl,
+            dokumen_pendukung_key: key,
+          }));
+        } catch (err) {
+          alert('Gagal menyimpan gambar ke IndexedDB');
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -197,55 +186,8 @@ function App() {
       }
     };
 
-    const saveRemote = async () => {
-      try {
-        const payload = {
-          tanggal: formData.tanggal,
-          jam_mulai: formData.jam_mulai,
-          jam_selesai: formData.jam_selesai || null,
-          judul_kegiatan: formData.judul_kegiatan,
-          rincian_kegiatan: formData.rincian_kegiatan,
-          dokumen_pendukung: formData.dokumen_pendukung,
-        };
-        if (isEditing) {
-          const res = await fetch(`${baseUrl}/logbook/${editingId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(payload),
-          });
-          if (!res.ok) throw new Error('Gagal update ke server');
-        } else {
-          const res = await fetch(`${baseUrl}/logbook`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(payload),
-          });
-          if (!res.ok) throw new Error('Gagal simpan ke server');
-        }
-        // refresh list
-        const listRes = await fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await listRes.json();
-        const mapped = (data || []).map((e) => ({
-          id: String(e.id),
-          tanggal: e.tanggal,
-          jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
-          judul_kegiatan: e.judul_kegiatan,
-          rincian_kegiatan: e.rincian_kegiatan,
-          dokumen_pendukung: e.dokumen_pendukung || null,
-        }));
-        setEntries(mapped);
-        setIsEditing(false);
-        setEditingId(null);
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-    if (isLoggedIn) {
-      saveRemote();
-    } else {
+    // Always local-only now
       saveLocal();
-    }
 
     // Reset form
     setFormData({
@@ -280,31 +222,13 @@ function App() {
 
   const handleDelete = (id) => {
     if (window.confirm('Yakin ingin menghapus kegiatan ini?')) {
-      if (isLoggedIn) {
-        fetch(`${baseUrl}/logbook/${id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        })
-          .then((res) => {
-            if (!res.ok) throw new Error('Gagal menghapus di server');
-            return fetch(`${baseUrl}/logbook`, { headers: { Authorization: `Bearer ${token}` } });
-          })
-          .then((res) => res.json())
-          .then((data) => {
-            const mapped = (data || []).map((e) => ({
-              id: String(e.id),
-              tanggal: e.tanggal,
-              jam: e.jam_selesai ? `${e.jam_mulai} - ${e.jam_selesai}` : `${e.jam_mulai}`,
-              judul_kegiatan: e.judul_kegiatan,
-              rincian_kegiatan: e.rincian_kegiatan,
-              dokumen_pendukung: e.dokumen_pendukung || null,
-            }));
-            setEntries(mapped);
-          })
-          .catch((e) => alert(e.message));
-      } else {
-        setEntries(prev => prev.filter(entry => entry.id !== id));
-      }
+        setEntries(prev => {
+          const target = prev.find((e) => e.id === id);
+          if (target && target.dokumen_pendukung_key) {
+            idbDeleteImage(target.dokumen_pendukung_key).catch(() => {});
+          }
+          return prev.filter(entry => entry.id !== id);
+        });
     }
   };
 
@@ -334,8 +258,8 @@ function App() {
       const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
       const response = await fetch(`${baseUrl}/api/generate-word`, {
         method: 'POST',
-        headers: isLoggedIn ? { Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' },
-        body: isLoggedIn ? null : JSON.stringify({ entries }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
       });
 
       if (!response.ok) {
@@ -386,13 +310,35 @@ function App() {
     }
   };
 
+  const parseMinutesFromJam = (jam) => {
+    if (!jam || typeof jam !== 'string') return 0;
+    const parts = jam.split(' - ');
+    if (parts.length !== 2) return 0;
+    const [start, end] = parts;
+    const [sh, sm] = (start || '').split(':').map((v) => parseInt(v, 10));
+    const [eh, em] = (end || '').split(':').map((v) => parseInt(v, 10));
+    if (Number.isNaN(sh) || Number.isNaN(sm) || Number.isNaN(eh) || Number.isNaN(em)) return 0;
+    const startMin = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    const diff = endMin - startMin;
+    return diff > 0 ? diff : 0;
+  };
+
+  const totalMinutesAll = entries.reduce((acc, e) => acc + parseMinutesFromJam(e.jam), 0);
+  const totalHours = Math.floor(totalMinutesAll / 60);
+  const totalRemainderMinutes = totalMinutesAll % 60;
+  const uniqueDatesCount = (() => {
+    const set = new Set((entries || []).map((e) => e.tanggal).filter(Boolean));
+    return set.size;
+  })();
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white shadow-lg rounded-lg overflow-hidden">
           <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3">
             <p className="text-sm text-yellow-800">
-              Pemberitahuan: Data logbook disimpan di localStorage browser ini saja. Jika dibuka di browser lain, datanya tidak akan tersedia.
+              Pemberitahuan: Data logbook disimpan di localStorage browser ini saja (gambar tidak dipersist). Jika dibuka di browser lain, datanya tidak akan tersedia.
             </p>
           </div>
           <div className="bg-blue-600 px-6 py-4">
@@ -401,51 +347,6 @@ function App() {
           </div>
 
           <div className="p-6">
-            {/* Auth Section: Login-first with NIM */}
-            <div className="mb-6 flex items-end justify-between gap-4">
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">NIM</label>
-                  <input
-                    type="text"
-                    value={authNim}
-                    onChange={(e) => setAuthNim(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Masukkan NIM"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                  <input
-                    type="password"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="••••••••"
-                  />
-                </div>
-                <div className="flex gap-2 md:mt-6">
-                  {!isLoggedIn ? (
-                    <>
-                      <button onClick={handleLogin} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Login</button>
-                      <button onClick={handleRegister} className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700">Register</button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-sm text-gray-700 self-center truncate">Login sebagai: {authNim || localStorage.getItem('auth_nim')}</span>
-                      <button onClick={handleLogout} className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">Logout</button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-            {/* Tampilkan konten hanya setelah login */}
-            {!isLoggedIn ? (
-              <div className="mb-6 p-4 border border-blue-200 bg-blue-50 rounded">
-                <p className="text-blue-800 text-sm">Silakan login terlebih dahulu dengan NIM dan password untuk mulai mengisi logbook.</p>
-              </div>
-            ) : (
-              <>
                 {/* Tabs */}
                 <div className="mb-6">
                   <div className="inline-flex rounded-md shadow-sm" role="group">
@@ -465,11 +366,9 @@ function App() {
                     </button>
                   </div>
                 </div>
-              </>
-            )}
 
             {/* Form Input */}
-            {isLoggedIn && activeTab === 'form' && (
+            {activeTab === 'form' && (
             <div className="bg-gray-50 rounded-lg p-6 mb-8">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">
                 {isEditing ? 'Edit Kegiatan' : 'Tambah Kegiatan Baru'}
@@ -597,7 +496,7 @@ function App() {
             )}
 
             {/* Preview Logbook */}
-            {isLoggedIn && activeTab === 'preview' && (
+            {activeTab === 'preview' && (
               <div className="mb-8">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold text-gray-900">Preview Logbook</h2>
@@ -623,6 +522,15 @@ function App() {
                       {isGenerating ? 'Generating...' : 'Generate Word Document'}
                     </button>
                   </div>
+                </div>
+
+                <div className="mb-3 text-sm text-gray-700 flex flex-wrap gap-4">
+                  <span>
+                    Total durasi semua kegiatan: <span className="font-semibold">{totalHours} jam {totalRemainderMinutes} menit</span>
+                  </span>
+                  <span>
+                    Total hari unik: <span className="font-semibold">{uniqueDatesCount} hari</span>
+                  </span>
                 </div>
 
                 {entries.length === 0 ? (
