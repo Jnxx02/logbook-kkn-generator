@@ -19,6 +19,7 @@ function App() {
     dokumen_pendukung_key: null
   });
   const [isGenerating, setIsGenerating] = useState(false);
+  const [includeImages, setIncludeImages] = useState(true);
 
   // Compress image using canvas (max width/height and JPEG quality)
   const compressImage = async (dataUrl, options = { maxWidth: 1280, maxHeight: 1280, quality: 0.7 }) => {
@@ -48,6 +49,37 @@ function App() {
       img.onerror = () => reject(new Error('Gagal memuat gambar untuk kompresi'));
       img.src = dataUrl;
     });
+  };
+
+  const dataUrlSizeBytes = (dataUrl) => {
+    if (!dataUrl) return 0;
+    // Rough estimate: base64 size = (length - header) * 0.75
+    const idx = dataUrl.indexOf(',');
+    const base64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+    return Math.floor(base64.length * 0.75);
+  };
+
+  const compressToMaxBytes = async (dataUrl, maxBytes) => {
+    // Try progressively lower quality and smaller dimensions until under maxBytes
+    let quality = 0.7;
+    let maxW = 1280;
+    let maxH = 1280;
+    for (let i = 0; i < 8; i++) {
+      const out = await compressImage(dataUrl, { maxWidth: maxW, maxHeight: maxH, quality });
+      if (dataUrlSizeBytes(out) <= maxBytes) return out;
+      // reduce quality then dimensions
+      if (quality > 0.5) {
+        quality -= 0.1;
+      } else {
+        maxW = Math.max(480, Math.floor(maxW * 0.8));
+        maxH = Math.max(480, Math.floor(maxH * 0.8));
+        if (maxW === 480 && maxH === 480 && quality <= 0.5) {
+          // final try lower quality
+          quality = Math.max(0.35, quality - 0.1);
+        }
+      }
+    }
+    return await compressImage(dataUrl, { maxWidth: maxW, maxHeight: maxH, quality: Math.max(0.35, quality) });
   };
 
   // Helper: safely save entries to localStorage without exceeding quota
@@ -136,7 +168,8 @@ function App() {
       reader.onload = async (e) => {
         let dataUrl = e.target.result;
         try {
-          dataUrl = await compressImage(dataUrl, { maxWidth: 1280, maxHeight: 1280, quality: 0.7 });
+          // target ~400KB per gambar untuk menjaga payload tetap kecil
+          dataUrl = await compressToMaxBytes(dataUrl, 400 * 1024);
         } catch (err) {
           console.warn('Kompresi gambar gagal, menggunakan gambar asli.');
         }
@@ -256,10 +289,14 @@ function App() {
     setIsGenerating(true);
     try {
       const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
+      const payloadEntries = entries.map((e) => ({
+        ...e,
+        dokumen_pendukung: includeImages ? e.dokumen_pendukung : null,
+      }));
       const response = await fetch(`${baseUrl}/api/generate-word`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries }),
+        body: JSON.stringify({ entries: payloadEntries }),
       });
 
       if (!response.ok) {
@@ -331,6 +368,27 @@ function App() {
     const set = new Set((entries || []).map((e) => e.tanggal).filter(Boolean));
     return set.size;
   })();
+
+  const getStartMinutes = (jam) => {
+    if (!jam || typeof jam !== 'string') return 0;
+    const start = jam.split(' - ')[0] || '';
+    const [h, m] = start.split(':').map((v) => parseInt(v, 10));
+    if (Number.isNaN(h) || Number.isNaN(m)) return 0;
+    return h * 60 + m;
+  };
+
+  const compareByDateTime = (a, b) => {
+    // Earlier date first
+    const ta = a.tanggal ? new Date(a.tanggal).getTime() : 0;
+    const tb = b.tanggal ? new Date(b.tanggal).getTime() : 0;
+    if (ta !== tb) return ta - tb;
+    // Same date: earlier start time first
+    return getStartMinutes(a.jam) - getStartMinutes(b.jam);
+  };
+
+  const sortedEntries = React.useMemo(() => {
+    return [...entries].sort(compareByDateTime);
+  }, [entries]);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -514,6 +572,14 @@ function App() {
                         <option value={100}>100</option>
                       </select>
                     </div>
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={includeImages}
+                        onChange={(e) => setIncludeImages(e.target.checked)}
+                      />
+                      Sertakan gambar saat generate
+                    </label>
                     <button
                       onClick={handleGenerateWord}
                       disabled={isGenerating || entries.length === 0}
@@ -552,7 +618,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {entries.slice(0, pageSize).map((entry, index) => (
+                        {sortedEntries.slice(0, pageSize).map((entry, index) => (
                           <tr key={entry.id} className="hover:bg-gray-50">
                             <td className="border border-gray-400 px-4 py-3 text-center">{index + 1}</td>
                             <td className="border border-gray-400 px-4 py-3 text-center">{formatTanggal(entry.tanggal)}</td>
