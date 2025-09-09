@@ -20,6 +20,8 @@ function App() {
   });
   const [isGenerating, setIsGenerating] = useState(false);
   const [includeImages, setIncludeImages] = useState(true);
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
 
   // Compress image using canvas (max width/height and JPEG quality)
   const compressImage = async (dataUrl, options = { maxWidth: 1280, maxHeight: 1280, quality: 0.7 }) => {
@@ -281,7 +283,7 @@ function App() {
   };
 
   const handleGenerateWord = async () => {
-    if (entries.length === 0) {
+    if (filteredEntries.length === 0) {
       alert('Tidak ada kegiatan untuk di-generate. Tambahkan kegiatan terlebih dahulu.');
       return;
     }
@@ -289,14 +291,32 @@ function App() {
     setIsGenerating(true);
     try {
       const baseUrl = process.env.REACT_APP_BACKEND_URL || '';
-      const payloadEntries = entries.map((e) => ({
+      const payloadEntries = filteredEntries.map((e) => ({
         ...e,
         dokumen_pendukung: includeImages ? e.dokumen_pendukung : null,
       }));
+      let headers = { 'Content-Type': 'application/json' };
+      let body;
+      try {
+        const supportsCompressionStream = typeof CompressionStream !== 'undefined';
+        if (supportsCompressionStream) {
+          const cs = new CompressionStream('gzip');
+          const blob = new Blob([JSON.stringify({ entries: payloadEntries })], { type: 'application/json' });
+          const stream = blob.stream().pipeThrough(cs);
+          const compressed = await new Response(stream).arrayBuffer();
+          headers = { ...headers, 'Content-Encoding': 'gzip' };
+          body = compressed;
+        } else {
+          body = JSON.stringify({ entries: payloadEntries });
+        }
+      } catch (_) {
+        body = JSON.stringify({ entries: payloadEntries });
+      }
+
       const response = await fetch(`${baseUrl}/api/generate-word`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: payloadEntries }),
+        headers,
+        body,
       });
 
       if (!response.ok) {
@@ -361,11 +381,11 @@ function App() {
     return diff > 0 ? diff : 0;
   };
 
-  const totalMinutesAll = entries.reduce((acc, e) => acc + parseMinutesFromJam(e.jam), 0);
+  const totalMinutesAll = filteredEntries.reduce((acc, e) => acc + parseMinutesFromJam(e.jam), 0);
   const totalHours = Math.floor(totalMinutesAll / 60);
   const totalRemainderMinutes = totalMinutesAll % 60;
   const uniqueDatesCount = (() => {
-    const set = new Set((entries || []).map((e) => e.tanggal).filter(Boolean));
+    const set = new Set((filteredEntries || []).map((e) => e.tanggal).filter(Boolean));
     return set.size;
   })();
 
@@ -390,14 +410,34 @@ function App() {
     return [...entries].sort(compareByDateTime);
   }, [entries]);
 
+  const filteredEntries = React.useMemo(() => {
+    const start = filterStartDate ? new Date(filterStartDate) : null;
+    const end = filterEndDate ? new Date(filterEndDate) : null;
+    return sortedEntries.filter((e) => {
+      if (!e.tanggal) return false;
+      const d = new Date(e.tanggal);
+      if (start && d < start) return false;
+      if (end && d > end) return false;
+      return true;
+    });
+  }, [sortedEntries, filterStartDate, filterEndDate]);
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white shadow-lg rounded-lg overflow-hidden">
           <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3">
-            <p className="text-sm text-yellow-800">
-              Pemberitahuan: Data logbook disimpan di localStorage browser ini saja (gambar tidak dipersist). Jika dibuka di browser lain, datanya tidak akan tersedia.
-            </p>
+            <div className="text-sm text-yellow-800 space-y-1">
+              <p>
+                Pemberitahuan: Data logbook disimpan lokal di browser ini. Teks disimpan di localStorage, sedangkan gambar disimpan di IndexedDB agar tidak melebihi kuota penyimpanan.
+              </p>
+              <p>
+                Setelah halaman di-refresh, gambar akan otomatis dipulihkan dari IndexedDB. Jika mode privat/penyimpanan diblokir, gambar tidak bisa dipulihkan.
+              </p>
+              <p>
+                Jika jumlah entri/gambar sangat banyak, gunakan filter tanggal (Dari/Sampai) di Preview untuk generate bertahap. Anda juga bisa menyalakan/mematikan opsi “Sertakan gambar saat generate”.
+              </p>
+            </div>
           </div>
           <div className="bg-blue-600 px-6 py-4">
             <h1 className="text-2xl font-bold text-white">Generator Logbook Otomatis</h1>
@@ -572,6 +612,14 @@ function App() {
                         <option value={100}>100</option>
                       </select>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-600">Dari</label>
+                      <input type="date" className="border border-gray-300 rounded px-2 py-1 text-sm" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-600">Sampai</label>
+                      <input type="date" className="border border-gray-300 rounded px-2 py-1 text-sm" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} />
+                    </div>
                     <label className="flex items-center gap-2 text-sm text-gray-700">
                       <input
                         type="checkbox"
@@ -599,14 +647,14 @@ function App() {
                   </span>
                 </div>
 
-                {entries.length === 0 ? (
+                {filteredEntries.length === 0 ? (
                   <div className="text-center py-8">
                     <div className="text-gray-500 text-lg">Belum ada kegiatan yang ditambahkan.</div>
                     <p className="text-gray-400 mt-2">Tambahkan kegiatan pada tab "Tambah Kegiatan" untuk mulai membuat logbook.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <div className="text-sm text-gray-600 mb-2">Menampilkan {Math.min(entries.length, pageSize)} dari {entries.length} entri</div>
+                    <div className="text-sm text-gray-600 mb-2">Menampilkan {Math.min(filteredEntries.length, pageSize)} dari {filteredEntries.length} entri</div>
                     <table className="min-w-full border-collapse border border-gray-400">
                       <thead>
                         <tr className="bg-gray-100">
@@ -618,7 +666,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedEntries.slice(0, pageSize).map((entry, index) => (
+                        {filteredEntries.slice(0, pageSize).map((entry, index) => (
                           <tr key={entry.id} className="hover:bg-gray-50">
                             <td className="border border-gray-400 px-4 py-3 text-center">{index + 1}</td>
                             <td className="border border-gray-400 px-4 py-3 text-center">{formatTanggal(entry.tanggal)}</td>

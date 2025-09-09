@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import List, Optional
+import json
+import gzip
 from datetime import datetime, date, time, timedelta
 from docx import Document
 from docx.shared import Inches, Pt
@@ -405,7 +407,7 @@ async def delete_logbook(entry_id: int, current_user: User = Depends(get_current
 
 
 @app.post("/api/generate-word")
-async def generate_word_document(data: Optional[GenerateBody] = None, token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def generate_word_document(request: Request, data: Optional[GenerateBody] = None, token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         doc = Document()
 
@@ -464,7 +466,42 @@ async def generate_word_document(data: Optional[GenerateBody] = None, token: Opt
                     rincian_kegiatan=e.rincian_kegiatan,
                     dokumen_pendukung=e.dokumen_pendukung,
                 ))
-        elif data and data.entries:
+        else:
+            # Accept either Pydantic-parsed body or raw (optionally gzipped) JSON
+            parsed_entries: List[GenerateEntry] = []
+            if data and data.entries:
+                parsed_entries = list(data.entries)
+            else:
+                try:
+                    raw_bytes = await request.body()
+                    if raw_bytes:
+                        encoding = (request.headers.get('content-encoding') or '').lower()
+                        if 'gzip' in encoding:
+                            try:
+                                raw_bytes = gzip.decompress(raw_bytes)
+                            except Exception:
+                                raise HTTPException(status_code=400, detail="Failed to decompress gzip body")
+                        try:
+                            body_json = json.loads(raw_bytes.decode('utf-8'))
+                        except Exception:
+                            raise HTTPException(status_code=400, detail="Invalid JSON body")
+                        entries_list = body_json.get('entries') if isinstance(body_json, dict) else None
+                        if isinstance(entries_list, list):
+                            for item in entries_list:
+                                if isinstance(item, dict):
+                                    parsed_entries.append(GenerateEntry(
+                                        id=str(item.get('id', '')),
+                                        tanggal=str(item.get('tanggal', '')),
+                                        jam=str(item.get('jam', '')),
+                                        judul_kegiatan=str(item.get('judul_kegiatan', '')),
+                                        rincian_kegiatan=str(item.get('rincian_kegiatan', '')),
+                                        dokumen_pendukung=item.get('dokumen_pendukung'),
+                                    ))
+                except HTTPException:
+                    raise
+                except Exception:
+                    parsed_entries = []
+
             def sort_key(en: GenerateEntry):
                 try:
                     d = datetime.strptime(en.tanggal, '%Y-%m-%d')
@@ -476,9 +513,7 @@ async def generate_word_document(data: Optional[GenerateBody] = None, token: Opt
                 except Exception:
                     t = time.max
                 return (d, t)
-            entries_for_doc = sorted(list(data.entries), key=sort_key)
-        else:
-            entries_for_doc = []
+            entries_for_doc = sorted(parsed_entries, key=sort_key)
 
         for idx, entry in enumerate(entries_for_doc, 1):
             row_cells = table.add_row().cells
