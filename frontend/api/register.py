@@ -9,24 +9,39 @@ import os
 app = FastAPI()
 
 
+# Try multiple environment variable sources
 DATABASE_URL = (
     os.getenv("DATABASE_URL")
     or os.getenv("POSTGRES_URL")
     or os.getenv("POSTGRES_PRISMA_URL")
     or ""
 )
+
 if DATABASE_URL:
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
     elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL.split("://", 1)[0]:
         DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
 else:
+    # Fallback: construct from individual env vars
     _pg_user = os.getenv("POSTGRES_USER")
     _pg_pass = os.getenv("POSTGRES_PASSWORD")
     _pg_host = os.getenv("POSTGRES_HOST")
-    _pg_db = os.getenv("POSTGRES_DATABASE", "postgres")
-    if _pg_host and _pg_user and _pg_pass:
+    _pg_db = os.getenv("POSTGRES_DATABASE")
+    
+    print(f"Env vars - User: {_pg_user}, Host: {_pg_host}, DB: {_pg_db}")  # Debug
+    
+    # Fix: Use project name from host instead of "postgres"
+    if _pg_host and "supabase" in _pg_host:
+        # Extract project name from host: db.zrezyxxvnotyxlkrhsvj.supabase.co -> zrezyxxvnotyxlkrhsvj
+        project_name = _pg_host.split(".")[1] if "." in _pg_host else _pg_db
+        _pg_db = project_name
+        print(f"Using project name as database: {_pg_db}")
+    
+    if _pg_host and _pg_user and _pg_pass and _pg_db:
         DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/{_pg_db}?sslmode=require"
+    else:
+        raise Exception("Missing required database environment variables")
 
 print(f"Database URL: {DATABASE_URL[:50]}...")  # Debug: show first 50 chars
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args={})

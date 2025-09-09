@@ -26,8 +26,15 @@ else:
     _pg_user = os.getenv("POSTGRES_USER")
     _pg_pass = os.getenv("POSTGRES_PASSWORD")
     _pg_host = os.getenv("POSTGRES_HOST")
-    _pg_db = os.getenv("POSTGRES_DATABASE", "postgres")
-    if _pg_host and _pg_user and _pg_pass:
+    _pg_db = os.getenv("POSTGRES_DATABASE")
+    
+    # Fix: Use project name from host instead of "postgres"
+    if _pg_host and "supabase" in _pg_host:
+        # Extract project name from host: db.zrezyxxvnotyxlkrhsvj.supabase.co -> zrezyxxvnotyxlkrhsvj
+        project_name = _pg_host.split(".")[1] if "." in _pg_host else _pg_db
+        _pg_db = project_name
+    
+    if _pg_host and _pg_user and _pg_pass and _pg_db:
         DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/{_pg_db}?sslmode=require"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args={})
