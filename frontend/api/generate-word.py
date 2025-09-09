@@ -46,7 +46,7 @@ else:
     _pg_host = os.getenv("POSTGRES_HOST")
     _pg_db = os.getenv("POSTGRES_DATABASE", "postgres")
     if _pg_host and _pg_user and _pg_pass:
-        DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:6543/{_pg_db}?sslmode=require"
+        DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/{_pg_db}?sslmode=require"
 JWT_SECRET = os.getenv("JWT_SECRET", "9f56a2a9f2d44a2eb8c6b3f4c8d3b1ae")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
