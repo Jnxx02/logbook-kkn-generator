@@ -24,7 +24,7 @@ app = FastAPI()
 
 
 # =====================================
-# Database & Auth Setup (Supabase Postgres)
+# Optional Database & Auth (not used in local mode)
 # =====================================
 
 DATABASE_URL = (
@@ -77,7 +77,7 @@ else:
 
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 def get_db():
@@ -273,137 +273,6 @@ async def generate_word_document_root():
     return {"status": "generate-word"}
 
 
-# Auth endpoints
-@app.post("/auth/register", response_model=UserOut)
-@app.post("/api/generate-word/auth/register", response_model=UserOut)
-async def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.nim == user_in.nim).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="NIM already registered")
-    user = User(nim=user_in.nim, password_hash=hash_password(user_in.password), is_admin=bool(user_in.is_admin or False))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@app.post("/auth/login", response_model=Token)
-@app.post("/api/generate-word/auth/login", response_model=Token)
-async def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.nim == form.username).first()
-    if not user or not verify_password(form.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Incorrect NIM or password")
-    token = create_access_token(user.id)
-    return {"access_token": token, "token_type": "bearer"}
-
-
-# CRUD endpoints
-@app.get("/logbook", response_model=List[LogbookEntryOut])
-@app.get("/api/generate-word/logbook", response_model=List[LogbookEntryOut])
-async def list_logbook(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    entries = (
-        db.query(LogbookEntryORM)
-        .filter(LogbookEntryORM.user_id == current_user.id)
-        .order_by(LogbookEntryORM.tanggal.asc(), LogbookEntryORM.jam_mulai.asc())
-        .all()
-    )
-    out = []
-    for e in entries:
-        out.append(LogbookEntryOut(
-            id=e.id,
-            tanggal=e.tanggal,
-            jam_mulai=e.jam_mulai.strftime('%H:%M'),
-            jam_selesai=e.jam_selesai.strftime('%H:%M') if e.jam_selesai else None,
-            judul_kegiatan=e.judul_kegiatan,
-            rincian_kegiatan=e.rincian_kegiatan,
-            dokumen_pendukung=e.dokumen_pendukung,
-        ))
-    return out
-
-
-@app.post("/logbook", response_model=LogbookEntryOut)
-@app.post("/api/generate-word/logbook", response_model=LogbookEntryOut)
-async def create_logbook(entry: LogbookEntryIn, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    def parse_time(v: Optional[str]) -> Optional[time]:
-        if not v:
-            return None
-        hh, mm = v.split(':')
-        return time(hour=int(hh), minute=int(mm))
-
-    image_url = None
-    if _is_base64_data_url(entry.dokumen_pendukung):
-        image_url = upload_base64_image_to_storage(entry.dokumen_pendukung, current_user.id)
-
-    orm = LogbookEntryORM(
-        user_id=current_user.id,
-        tanggal=entry.tanggal,
-        jam_mulai=parse_time(entry.jam_mulai),
-        jam_selesai=parse_time(entry.jam_selesai),
-        judul_kegiatan=entry.judul_kegiatan,
-        rincian_kegiatan=entry.rincian_kegiatan,
-        dokumen_pendukung=image_url or entry.dokumen_pendukung,
-    )
-    db.add(orm)
-    db.commit()
-    db.refresh(orm)
-    return LogbookEntryOut(
-        id=orm.id,
-        tanggal=orm.tanggal,
-        jam_mulai=orm.jam_mulai.strftime('%H:%M'),
-        jam_selesai=orm.jam_selesai.strftime('%H:%M') if orm.jam_selesai else None,
-        judul_kegiatan=orm.judul_kegiatan,
-        rincian_kegiatan=orm.rincian_kegiatan,
-        dokumen_pendukung=orm.dokumen_pendukung,
-    )
-
-
-@app.put("/logbook/{entry_id}", response_model=LogbookEntryOut)
-@app.put("/api/generate-word/logbook/{entry_id}", response_model=LogbookEntryOut)
-async def update_logbook(entry_id: int, entry: LogbookEntryIn, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    orm = db.query(LogbookEntryORM).filter(LogbookEntryORM.id == entry_id, LogbookEntryORM.user_id == current_user.id).first()
-    if not orm:
-        raise HTTPException(status_code=404, detail="Entry not found")
-
-    def parse_time(v: Optional[str]) -> Optional[time]:
-        if not v:
-            return None
-        hh, mm = v.split(':')
-        return time(hour=int(hh), minute=int(mm))
-
-    orm.tanggal = entry.tanggal
-    orm.jam_mulai = parse_time(entry.jam_mulai)
-    orm.jam_selesai = parse_time(entry.jam_selesai)
-    orm.judul_kegiatan = entry.judul_kegiatan
-    orm.rincian_kegiatan = entry.rincian_kegiatan
-    # If base64 provided, upload and replace with URL
-    if _is_base64_data_url(entry.dokumen_pendukung):
-        uploaded = upload_base64_image_to_storage(entry.dokumen_pendukung, current_user.id)
-        if uploaded:
-            orm.dokumen_pendukung = uploaded
-    else:
-        orm.dokumen_pendukung = entry.dokumen_pendukung
-    db.commit()
-    db.refresh(orm)
-    return LogbookEntryOut(
-        id=orm.id,
-        tanggal=orm.tanggal,
-        jam_mulai=orm.jam_mulai.strftime('%H:%M'),
-        jam_selesai=orm.jam_selesai.strftime('%H:%M') if orm.jam_selesai else None,
-        judul_kegiatan=orm.judul_kegiatan,
-        rincian_kegiatan=orm.rincian_kegiatan,
-        dokumen_pendukung=orm.dokumen_pendukung,
-    )
-
-
-@app.delete("/logbook/{entry_id}")
-@app.delete("/api/generate-word/logbook/{entry_id}")
-async def delete_logbook(entry_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    orm = db.query(LogbookEntryORM).filter(LogbookEntryORM.id == entry_id, LogbookEntryORM.user_id == current_user.id).first()
-    if not orm:
-        raise HTTPException(status_code=404, detail="Entry not found")
-    db.delete(orm)
-    db.commit()
-    return {"status": "deleted"}
 
 
 @app.post("/api/generate-word")
