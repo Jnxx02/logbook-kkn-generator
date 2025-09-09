@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 
 function App() {
@@ -132,28 +132,6 @@ function App() {
     localStorage.removeItem('auth_nim');
     // keep entries as-is or reload from localStorage
   };
-
-  const sortedEntries = useMemo(() => {
-    const parseDate = (d) => {
-      const dt = new Date(d);
-      return isNaN(dt.getTime()) ? new Date(8640000000000000) : dt; // invalid -> far future
-    };
-    const parseStartMinutes = (jam) => {
-      if (!jam) return 24 * 60 + 1; // after end of day
-      const start = jam.split(' - ')[0]?.trim();
-      const [hh, mm] = (start || '').split(':').map((v) => parseInt(v, 10));
-      if (isNaN(hh) || isNaN(mm)) return 24 * 60 + 1;
-      return hh * 60 + mm;
-    };
-    return [...entries].sort((a, b) => {
-      const da = parseDate(a.tanggal);
-      const db = parseDate(b.tanggal);
-      if (da.getTime() !== db.getTime()) return da - db;
-      const ta = parseStartMinutes(a.jam);
-      const tb = parseStartMinutes(b.jam);
-      return ta - tb;
-    });
-  }, [entries]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -666,7 +644,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedEntries.slice(0, pageSize).map((entry, index) => (
+                        {entries.slice(0, pageSize).map((entry, index) => (
                           <tr key={entry.id} className="hover:bg-gray-50">
                             <td className="border border-gray-400 px-4 py-3 text-center">{index + 1}</td>
                             <td className="border border-gray-400 px-4 py-3 text-center">{formatTanggal(entry.tanggal)}</td>
