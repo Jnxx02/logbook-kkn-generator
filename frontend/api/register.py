@@ -28,6 +28,7 @@ else:
     if _pg_host and _pg_user and _pg_pass:
         DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/{_pg_db}?sslmode=require"
 
+print(f"Database URL: {DATABASE_URL[:50]}...")  # Debug: show first 50 chars
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args={})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -79,14 +80,18 @@ def hash_password(plain: str) -> str:
 @app.post("", response_model=UserOut)
 @app.post("/api/register", response_model=UserOut)
 async def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.nim == user_in.nim).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="NIM already registered")
-    user = User(nim=user_in.nim, password_hash=hash_password(user_in.password), is_admin=bool(user_in.is_admin or False))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    try:
+        existing = db.query(User).filter(User.nim == user_in.nim).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="NIM already registered")
+        user = User(nim=user_in.nim, password_hash=hash_password(user_in.password), is_admin=bool(user_in.is_admin or False))
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    except Exception as e:
+        print(f"Register error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 @app.get("/")
