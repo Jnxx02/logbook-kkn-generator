@@ -381,14 +381,6 @@ function App() {
     return diff > 0 ? diff : 0;
   };
 
-  const totalMinutesAll = filteredEntries.reduce((acc, e) => acc + parseMinutesFromJam(e.jam), 0);
-  const totalHours = Math.floor(totalMinutesAll / 60);
-  const totalRemainderMinutes = totalMinutesAll % 60;
-  const uniqueDatesCount = (() => {
-    const set = new Set((filteredEntries || []).map((e) => e.tanggal).filter(Boolean));
-    return set.size;
-  })();
-
   const getStartMinutes = (jam) => {
     if (!jam || typeof jam !== 'string') return 0;
     const start = jam.split(' - ')[0] || '';
@@ -421,6 +413,14 @@ function App() {
       return true;
     });
   }, [sortedEntries, filterStartDate, filterEndDate]);
+
+  const totalMinutesAll = filteredEntries.reduce((acc, e) => acc + parseMinutesFromJam(e.jam), 0);
+  const totalHours = Math.floor(totalMinutesAll / 60);
+  const totalRemainderMinutes = totalMinutesAll % 60;
+  const uniqueDatesCount = (() => {
+    const set = new Set((filteredEntries || []).map((e) => e.tanggal).filter(Boolean));
+    return set.size;
+  })();
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
