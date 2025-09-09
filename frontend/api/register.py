@@ -9,13 +9,15 @@ import os
 app = FastAPI()
 
 
-# Try multiple environment variable sources
+# Try multiple environment variable sources - prioritize DATABASE_URL
 DATABASE_URL = (
     os.getenv("DATABASE_URL")
     or os.getenv("POSTGRES_URL")
     or os.getenv("POSTGRES_PRISMA_URL")
     or ""
 )
+
+print(f"Found DATABASE_URL: {bool(DATABASE_URL)}")  # Debug
 
 if DATABASE_URL:
     if DATABASE_URL.startswith("postgres://"):
@@ -41,7 +43,12 @@ else:
     if _pg_host and _pg_user and _pg_pass and _pg_db:
         DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/{_pg_db}?sslmode=require"
     else:
-        raise Exception("Missing required database environment variables")
+        print("Missing env vars - trying to use individual components...")
+        # Last resort: try with minimal connection
+        if _pg_host and _pg_user and _pg_pass:
+            DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/postgres?sslmode=require"
+        else:
+            raise Exception("Missing required database environment variables")
 
 print(f"Database URL: {DATABASE_URL[:50]}...")  # Debug: show first 50 chars
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args={})
