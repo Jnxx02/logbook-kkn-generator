@@ -22,6 +22,7 @@ function App() {
   const [includeImages, setIncludeImages] = useState(true);
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [page, setPage] = useState(1);
 
   // Compress image using canvas (max width/height and JPEG quality)
   const compressImage = async (dataUrl, options = { maxWidth: 1280, maxHeight: 1280, quality: 0.7 }) => {
@@ -178,11 +179,11 @@ function App() {
         const key = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         try {
           await idbSaveImage(key, dataUrl);
-          setFormData(prev => ({
-            ...prev,
+        setFormData(prev => ({
+          ...prev,
             dokumen_pendukung: dataUrl,
             dokumen_pendukung_key: key,
-          }));
+        }));
         } catch (err) {
           alert('Gagal menyimpan gambar ke IndexedDB');
         }
@@ -416,6 +417,17 @@ function App() {
       return true;
     });
   }, [sortedEntries, filterStartDate, filterEndDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStartIndex = (currentPage - 1) * pageSize;
+  const pageEndIndex = Math.min(pageStartIndex + pageSize, filteredEntries.length);
+  const pageEntries = filteredEntries.slice(pageStartIndex, pageEndIndex);
+
+  useEffect(() => {
+    // Reset to page 1 when filters or pageSize change
+    setPage(1);
+  }, [filterStartDate, filterEndDate, pageSize]);
 
   const totalMinutesAll = filteredEntries.reduce((acc, e) => acc + parseMinutesFromJam(e.jam), 0);
   const totalHours = Math.floor(totalMinutesAll / 60);
@@ -657,7 +669,7 @@ function App() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <div className="text-sm text-gray-600 mb-2">Menampilkan {Math.min(filteredEntries.length, pageSize)} dari {filteredEntries.length} entri</div>
+                    <div className="text-sm text-gray-600 mb-2">Menampilkan {pageStartIndex + 1}-{pageEndIndex} dari {filteredEntries.length} entri</div>
                     <table className="min-w-full border-collapse border border-gray-400">
                       <thead>
                         <tr className="bg-gray-100">
@@ -669,9 +681,9 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredEntries.slice(0, pageSize).map((entry, index) => (
+                        {pageEntries.map((entry, index) => (
                           <tr key={entry.id} className="hover:bg-gray-50">
-                            <td className="border border-gray-400 px-4 py-3 text-center">{index + 1}</td>
+                            <td className="border border-gray-400 px-4 py-3 text-center">{pageStartIndex + index + 1}</td>
                             <td className="border border-gray-400 px-4 py-3 text-center">{formatTanggal(entry.tanggal)}</td>
                             <td className="border border-gray-400 px-4 py-3 text-center">{entry.jam}</td>
                             <td className="border border-gray-400 px-4 py-3">
@@ -720,6 +732,25 @@ function App() {
                         ))}
                       </tbody>
                     </table>
+                    <div className="flex items-center justify-between mt-3 text-sm">
+                      <span>Halaman {currentPage} dari {totalPages}</span>
+                      <div className="flex gap-2">
+                        <button
+                          className="px-3 py-1 border rounded disabled:opacity-50"
+                          disabled={currentPage <= 1}
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        >
+                          Sebelumnya
+                        </button>
+                        <button
+                          className="px-3 py-1 border rounded disabled:opacity-50"
+                          disabled={currentPage >= totalPages}
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        >
+                          Selanjutnya
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
