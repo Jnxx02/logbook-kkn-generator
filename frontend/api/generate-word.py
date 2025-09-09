@@ -1,11 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import List, Optional
 import json
 import gzip
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, time
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -13,157 +12,11 @@ from docx.enum.table import WD_ALIGN_VERTICAL
 import base64
 import tempfile
 import os
-from jose import jwt
-import requests
-import uuid
-from passlib.context import CryptContext
-from sqlalchemy import create_engine, Column, Integer, String, Date, Time, Boolean, ForeignKey
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
 
 app = FastAPI()
 
 
-# =====================================
-# Optional Database & Auth (not used in local mode)
-# =====================================
-
-DATABASE_URL = (
-    os.getenv("DATABASE_URL")
-    or os.getenv("POSTGRES_URL")
-    or os.getenv("POSTGRES_PRISMA_URL")
-    or ""
-)
-
-# Normalize URL scheme for SQLAlchemy
-if DATABASE_URL:
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
-    elif DATABASE_URL.startswith("postgresql://") and "+" not in DATABASE_URL.split("://", 1)[0]:
-        # upgrade to psycopg driver explicitly
-        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
-else:
-    # Build DSN from individual envs provided by Vercel/Supabase integration
-    _pg_user = os.getenv("POSTGRES_USER")
-    _pg_pass = os.getenv("POSTGRES_PASSWORD")
-    _pg_host = os.getenv("POSTGRES_HOST")
-    _pg_db = os.getenv("POSTGRES_DATABASE")
-    
-    # Fix: Use project name from host instead of "postgres"
-    if _pg_host and "supabase" in _pg_host:
-        # Extract project name from host: db.zrezyxxvnotyxlkrhsvj.supabase.co -> zrezyxxvnotyxlkrhsvj
-        project_name = _pg_host.split(".")[1] if "." in _pg_host else _pg_db
-        _pg_db = project_name
-    
-    if _pg_host and _pg_user and _pg_pass and _pg_db:
-        DATABASE_URL = f"postgresql+psycopg://{_pg_user}:{_pg_pass}@{_pg_host}:5432/{_pg_db}?sslmode=require"
-JWT_SECRET = os.getenv("JWT_SECRET", "9f56a2a9f2d44a2eb8c6b3f4c8d3b1ae")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "logbook-images")
-
-if not DATABASE_URL:
-    # In serverless, we still allow non-DB mode for backward compatibility
-    engine = None
-    SessionLocal = None
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        connect_args={}
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
-
-
-def get_db():
-    if SessionLocal is None:
-        raise HTTPException(status_code=500, detail="Database not configured")
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    nim = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    is_admin = Column(Boolean, default=False, nullable=False)
-    created_at = Column(String, default=lambda: datetime.utcnow().isoformat(), nullable=False)
-    entries = relationship("LogbookEntryORM", back_populates="user", cascade="all, delete-orphan")
-
-
-class LogbookEntryORM(Base):
-    __tablename__ = "logbook_entries"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    tanggal = Column(Date, nullable=False)
-    jam_mulai = Column(Time, nullable=False)
-    jam_selesai = Column(Time, nullable=True)
-    judul_kegiatan = Column(String, nullable=False)
-    rincian_kegiatan = Column(String, nullable=False)
-    dokumen_pendukung = Column(String, nullable=True)
-    user = relationship("User", back_populates="entries")
-
-
-if engine is not None:
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception:
-        # Avoid crashing the function on cold start; DB will be used lazily per-request
-        pass
-
-
 # Schemas
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class UserCreate(BaseModel):
-    nim: str
-    password: str
-    is_admin: Optional[bool] = False
-
-
-class UserOut(BaseModel):
-    id: int
-    nim: str
-    is_admin: bool
-
-    class Config:
-        from_attributes = True
-
-
-class LogbookEntryIn(BaseModel):
-    tanggal: date
-    jam_mulai: str
-    jam_selesai: Optional[str] = None
-    judul_kegiatan: str
-    rincian_kegiatan: str
-    dokumen_pendukung: Optional[str] = None
-
-
-class LogbookEntryOut(BaseModel):
-    id: int
-    tanggal: date
-    jam_mulai: str
-    jam_selesai: Optional[str]
-    judul_kegiatan: str
-    rincian_kegiatan: str
-    dokumen_pendukung: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
 class GenerateEntry(BaseModel):
     id: str
     tanggal: str
@@ -177,95 +30,11 @@ class GenerateBody(BaseModel):
     entries: List[GenerateEntry]
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-
-def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
-
-
-def create_access_token(user_id: int) -> str:
-    payload = {"sub": str(user_id), "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}
-    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
-
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
-        uid = int(payload.get("sub"))
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.id == uid).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-
-# ==============================
-# Supabase Storage Helpers
-# ==============================
-
 def _is_base64_data_url(value: Optional[str]) -> bool:
     if not value:
         return False
     # data:image/png;base64,....
     return value.startswith("data:") and "base64," in value
-
-
-def upload_base64_image_to_storage(base64_data_url: str, user_id: int) -> Optional[str]:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        return None
-    try:
-        raw = base64_data_url
-        if 'base64,' in raw:
-            raw = raw.split('base64,', 1)[1]
-        elif ',' in raw:
-            raw = raw.split(',', 1)[1]
-        raw = raw.strip()
-        image_bytes = base64.b64decode(raw)
-        # detect simple type from data URL header if available
-        ext = 'png'
-        if base64_data_url.startswith('data:image/jpeg') or base64_data_url.startswith('data:image/jpg'):
-            ext = 'jpg'
-        elif base64_data_url.startswith('data:image/webp'):
-            ext = 'webp'
-        elif base64_data_url.startswith('data:image/gif'):
-            ext = 'gif'
-        filename = f"user-{user_id}/{uuid.uuid4().hex}.{ext}"
-        url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_STORAGE_BUCKET}/{filename}"
-        headers = {
-            'Authorization': f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
-            'Content-Type': f"image/{ext}",
-        }
-        resp = requests.post(url, headers=headers, data=image_bytes, timeout=30)
-        # 200/201 both are OK for object put
-        if resp.status_code not in (200, 201):
-            return None
-        # Public URL (bucket should be public). If private, you can create signed URLs instead.
-        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{filename}"
-        return public_url
-    except Exception:
-        return None
-
-
-def download_image_bytes(image_ref: str) -> Optional[bytes]:
-    try:
-        if image_ref.startswith('http://') or image_ref.startswith('https://'):
-            r = requests.get(image_ref, timeout=30)
-            if r.status_code == 200:
-                return r.content
-            return None
-        # fallback: treat as storage path bucket/key
-        if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
-            url = f"{SUPABASE_URL}/storage/v1/object/{image_ref}"
-            headers = {'Authorization': f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"}
-            r = requests.get(url, headers=headers, timeout=30)
-            if r.status_code == 200:
-                return r.content
-        return None
-    except Exception:
-        return None
 
 @app.get("/")
 @app.get("/api/generate-word")
@@ -273,10 +42,8 @@ async def generate_word_document_root():
     return {"status": "generate-word"}
 
 
-
-
 @app.post("/api/generate-word")
-async def generate_word_document(request: Request, token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def generate_word_document(request: Request):
     try:
         doc = Document()
 
@@ -308,78 +75,50 @@ async def generate_word_document(request: Request, token: Optional[str] = Depend
         ]
 
         entries_for_doc: List[GenerateEntry] = []
-        user = None
-        if token and SessionLocal is not None:
-            try:
-                payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
-                uid = int(payload.get('sub'))
-                user = db.query(User).filter(User.id == uid).first()
-            except Exception:
-                user = None
-        if user is not None:
-            db_entries = (
-                db.query(LogbookEntryORM)
-                .filter(LogbookEntryORM.user_id == user.id)
-                .order_by(LogbookEntryORM.tanggal.asc(), LogbookEntryORM.jam_mulai.asc())
-                .all()
-            )
-            for e in db_entries:
-                jam_str = e.jam_mulai.strftime('%H:%M')
-                if e.jam_selesai:
-                    jam_str += f" - {e.jam_selesai.strftime('%H:%M')}"
-                entries_for_doc.append(GenerateEntry(
-                    id=str(e.id),
-                    tanggal=e.tanggal.strftime('%Y-%m-%d'),
-                    jam=jam_str,
-                    judul_kegiatan=e.judul_kegiatan,
-                    rincian_kegiatan=e.rincian_kegiatan,
-                    dokumen_pendukung=e.dokumen_pendukung,
-                ))
-        else:
-            # Accept raw (optionally gzipped) JSON
-            parsed_entries: List[GenerateEntry] = []
-            try:
-                raw_bytes = await request.body()
-                if raw_bytes:
-                    encoding = (request.headers.get('content-encoding') or '').lower()
-                    if 'gzip' in encoding:
-                        try:
-                            raw_bytes = gzip.decompress(raw_bytes)
-                        except Exception:
-                            raise HTTPException(status_code=400, detail="Failed to decompress gzip body")
+        # Accept raw (optionally gzipped) JSON
+        parsed_entries: List[GenerateEntry] = []
+        try:
+            raw_bytes = await request.body()
+            if raw_bytes:
+                encoding = (request.headers.get('content-encoding') or '').lower()
+                if 'gzip' in encoding:
                     try:
-                        body_json = json.loads(raw_bytes.decode('utf-8'))
+                        raw_bytes = gzip.decompress(raw_bytes)
                     except Exception:
-                        raise HTTPException(status_code=400, detail="Invalid JSON body")
-                    entries_list = body_json.get('entries') if isinstance(body_json, dict) else None
-                    if isinstance(entries_list, list):
-                        for item in entries_list:
-                            if isinstance(item, dict):
-                                parsed_entries.append(GenerateEntry(
-                                    id=str(item.get('id', '')),
-                                    tanggal=str(item.get('tanggal', '')),
-                                    jam=str(item.get('jam', '')),
-                                    judul_kegiatan=str(item.get('judul_kegiatan', '')),
-                                    rincian_kegiatan=str(item.get('rincian_kegiatan', '')),
-                                    dokumen_pendukung=item.get('dokumen_pendukung'),
-                                ))
-            except HTTPException:
-                raise
-            except Exception:
-                parsed_entries = []
+                        raise HTTPException(status_code=400, detail="Failed to decompress gzip body")
+                try:
+                    body_json = json.loads(raw_bytes.decode('utf-8'))
+                except Exception:
+                    raise HTTPException(status_code=400, detail="Invalid JSON body")
+                entries_list = body_json.get('entries') if isinstance(body_json, dict) else None
+                if isinstance(entries_list, list):
+                    for item in entries_list:
+                        if isinstance(item, dict):
+                            parsed_entries.append(GenerateEntry(
+                                id=str(item.get('id', '')),
+                                tanggal=str(item.get('tanggal', '')),
+                                jam=str(item.get('jam', '')),
+                                judul_kegiatan=str(item.get('judul_kegiatan', '')),
+                                rincian_kegiatan=str(item.get('rincian_kegiatan', '')),
+                                dokumen_pendukung=item.get('dokumen_pendukung'),
+                            ))
+        except HTTPException:
+            raise
+        except Exception:
+            parsed_entries = []
 
-            def sort_key(en: GenerateEntry):
-                try:
-                    d = datetime.strptime(en.tanggal, '%Y-%m-%d')
-                except Exception:
-                    d = datetime.max
-                try:
-                    start = (en.jam or '').split(' - ')[0].strip()
-                    t = datetime.strptime(start, '%H:%M').time()
-                except Exception:
-                    t = time.max
-                return (d, t)
-            entries_for_doc = sorted(parsed_entries, key=sort_key)
+        def sort_key(en: GenerateEntry):
+            try:
+                d = datetime.strptime(en.tanggal, '%Y-%m-%d')
+            except Exception:
+                d = datetime.max
+            try:
+                start = (en.jam or '').split(' - ')[0].strip()
+                t = datetime.strptime(start, '%H:%M').time()
+            except Exception:
+                t = time.max
+            return (d, t)
+        entries_for_doc = sorted(parsed_entries, key=sort_key)
 
         for idx, entry in enumerate(entries_for_doc, 1):
             row_cells = table.add_row().cells
